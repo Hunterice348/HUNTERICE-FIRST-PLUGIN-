@@ -7,41 +7,46 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Clone JUCE
+      - name: Clone JUCE 7.0.12
         shell: bash
         run: |
           git clone --depth 1 --branch 7.0.12 https://github.com/juce-framework/JUCE.git JUCE
 
       - name: Configure CMake
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          cmake -S . -B build -A x64
 
-      - name: Build VST3
-        run: cmake --build build --config Release --target HUNTERICE_FIRST_PLUGIN_VST3
+      - name: Build VST3 (Release)
+        shell: bash
+        run: |
+          cmake --build build --config Release --target HUNTERICE_FIRST_PLUGIN_VST3
 
       - name: Locate VST3 bundle
-        shell: bash
+        shell: pwsh
         run: |
-          find build -type d -name "HUNTERICE First Plugin.vst3" -print -quit > vst3path.txt
-          cat vst3path.txt
+          $vst3 = Get-ChildItem -Path build -Recurse -Directory -Filter "HUNTERICE First Plugin.vst3" | Select-Object -First 1
+          if (-not $vst3) {
+            Write-Error "VST3 bundle not found!"
+            Get-ChildItem -Path build -Recurse | Format-Table FullName
+            exit 1
+          }
+          Write-Host "Found VST3 at: $($vst3.FullName)"
+          $vst3.FullName | Out-File -FilePath vst3path.txt -Encoding utf8
 
       - name: Package VST3 to ZIP
-        shell: bash
+        shell: pwsh
         run: |
-          VST3_PATH=$(cat vst3path.txt)
-          if [ -z "$VST3_PATH" ]; then
-            echo "VST3 bundle not found!"
-            exit 1
-          fi
-          mkdir -p artifact
-          cp -r "$VST3_PATH" artifact/
-          cd artifact
-          7z a ../HUNTERICE_First_Plugin_VST3.zip *
+          $vst3Path = Get-Content vst3path.txt
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item -Path $vst3Path -Destination artifact -Recurse
+          Compress-Archive -Path artifact\* -DestinationPath HUNTERICE_First_Plugin_VST3.zip -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
